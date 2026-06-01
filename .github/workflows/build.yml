@@ -1,0 +1,96 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.x'
+
+      - name: Build worker
+        working-directory: worker
+        run: dotnet publish -r win-x64 -c Release -o publish
+
+      - name: Copy worker binary
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force app\assets\worker | Out-Null
+          Copy-Item worker\publish\CordCastWorker.exe app\assets\worker\CordCastWorker.exe
+          Copy-Item vendor\win64\bass.dll app\assets\worker\bass.dll
+          Copy-Item vendor\win64\opus.dll app\assets\worker\opus.dll
+          Copy-Item vendor\win64\libsodium.dll app\assets\worker\libsodium.dll
+          Copy-Item vendor\win64\libdave.dll app\assets\worker\libdave.dll
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Windows desktop
+        working-directory: app
+        run: flutter config --enable-windows-desktop
+
+      - name: Get dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build Windows release
+        working-directory: app
+        run: flutter build windows --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cordcast-windows
+          path: app/build/windows/x64/runner/Release/
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.x'
+
+      - name: Build worker
+        working-directory: worker
+        run: dotnet publish -r linux-x64 -c Release -o publish
+
+      - name: Copy worker binary
+        run: |
+          mkdir -p app/assets/worker
+          cp worker/publish/CordCastWorker app/assets/worker/CordCastWorker
+          chmod +x app/assets/worker/CordCastWorker
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev
+
+      - name: Enable Linux desktop
+        working-directory: app
+        run: flutter config --enable-linux-desktop
+
+      - name: Get dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build Linux release
+        working-directory: app
+        run: flutter build linux --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cordcast-linux
+          path: app/build/linux/x64/release/bundle/

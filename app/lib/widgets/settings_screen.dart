@@ -91,6 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (v) {
                     setState(() => cfg.speakEnabled = v);
                     settings.save();
+                    bot.applySpeak();
                   },
                 ),
                 const SizedBox(height: 12),
@@ -111,6 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onChanged: (v) {
                             setState(() => cfg.recordingDevice = v == '(none)' ? null : v);
                             settings.save();
+                            bot.applySpeak();
                           },
                         ),
                         const SizedBox(height: 12),
@@ -120,6 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onChanged: (v) {
                             setState(() => cfg.speakThresholdEnabled = v);
                             settings.save();
+                            bot.applySpeak();
                           },
                         ),
                         if (cfg.speakThresholdEnabled) ...[
@@ -135,7 +138,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onChanged: (v) {
                               setState(() => cfg.speakThreshold = v);
                             },
-                            onChangeEnd: (_) => settings.save(),
+                            onChangeEnd: (_) {
+                              settings.save();
+                              bot.applySpeak();
+                            },
                           ),
                         ],
                       ],
@@ -156,6 +162,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (v) {
                     setState(() => cfg.listenEnabled = v);
                     settings.save();
+                    bot.applyListen();
                   },
                 ),
                 const SizedBox(height: 12),
@@ -176,6 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onChanged: (v) {
                             setState(() => cfg.playbackDevice = v == '(none)' ? null : v);
                             settings.save();
+                            bot.applyListen();
                           },
                         ),
                       ],

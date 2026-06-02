@@ -144,23 +144,22 @@ public class BotService : IAsyncDisposable
 
         var pcmStream = audioClient.CreatePCMStream(AudioApplication.Voice, bitrate: 96000, bufferMillis: 200);
 
-        if (_config!.ListenEnabled)
+        // Always subscribe; AudioService.ReceiveDiscordAudio drops frames when
+        // listen is off, so this can be toggled live without rejoining voice.
+        audioClient.StreamCreated += (userId, stream) =>
         {
-            audioClient.StreamCreated += (userId, stream) =>
+            _ = Task.Run(async () =>
             {
-                _ = Task.Run(async () =>
+                var buf = new byte[3840];
+                while (true)
                 {
-                    var buf = new byte[3840];
-                    while (true)
-                    {
-                        int read = await stream.ReadAsync(buf);
-                        if (read == 0) break;
-                        _audio.ReceiveDiscordAudio(buf[..read]);
-                    }
-                });
-                return Task.CompletedTask;
-            };
-        }
+                    int read = await stream.ReadAsync(buf);
+                    if (read == 0) break;
+                    _audio.ReceiveDiscordAudio(buf[..read]);
+                }
+            });
+            return Task.CompletedTask;
+        };
 
         // Store new connection
         await _audioLock.WaitAsync();

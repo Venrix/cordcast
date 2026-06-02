@@ -110,6 +110,28 @@ class BotProvider extends ChangeNotifier {
     _worker.listDevices();
   }
 
+  /// Push current speak settings to a running bot so toggles take effect live.
+  void applySpeak() {
+    if (status != BotStatus.connected) return;
+    final cfg = _settings.config;
+    _worker.setSpeak(
+      enabled: cfg.speakEnabled,
+      deviceName: cfg.recordingDevice,
+      thresholdEnabled: cfg.speakThresholdEnabled,
+      threshold: cfg.speakThreshold,
+    );
+  }
+
+  /// Push current listen settings to a running bot so toggles take effect live.
+  void applyListen() {
+    if (status != BotStatus.connected) return;
+    final cfg = _settings.config;
+    _worker.setListen(
+      enabled: cfg.listenEnabled,
+      deviceName: cfg.playbackDevice,
+    );
+  }
+
   void updateGuildConfig(GuildConfig guildConfig) {
     _settings.config.guildConfigs.removeWhere((g) => g.guildId == guildConfig.guildId);
     _settings.config.guildConfigs.add(guildConfig);

@@ -9,7 +9,6 @@ import 'package:path/path.dart' as p;
 ///
 /// Windows: %LOCALAPPDATA%\CordCast\flutter.log
 /// Linux:   ~/.local/share/CordCast/flutter.log
-/// macOS:   ~/Library/Application Support/CordCast/flutter.log
 class AppLogger {
   static IOSink? _sink;
 
@@ -18,9 +17,6 @@ class AppLogger {
       final base = Platform.environment['LOCALAPPDATA'] ??
           p.join(Platform.environment['USERPROFILE'] ?? '', 'AppData', 'Local');
       return p.join(base, 'CordCast');
-    } else if (Platform.isMacOS) {
-      final home = Platform.environment['HOME'] ?? '';
-      return p.join(home, 'Library', 'Application Support', 'CordCast');
     } else {
       final home = Platform.environment['HOME'] ?? '';
       return p.join(home, '.local', 'share', 'CordCast');

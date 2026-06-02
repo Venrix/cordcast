@@ -1,5 +1,7 @@
 # cordcast
 
+[![Download latest Release](https://img.shields.io/github/v/release/Venrix/cordcast?label=Download%20latest%20Release&logo=windows&style=for-the-badge)](https://github.com/Venrix/cordcast/releases/latest)
+
 Discord audio streaming bot with a desktop control panel. Streams your system's microphone (or any recording device) into Discord voice and stage channels, and plays Discord audio back out to your speakers. Built with a Flutter desktop frontend driving a self-contained .NET worker bot.
 
 Runs on **Windows** (Linux build paths exist but are untested).

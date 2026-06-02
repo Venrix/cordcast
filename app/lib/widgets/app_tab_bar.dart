@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../theme/app_theme.dart';
 
-class AppTabBar extends StatelessWidget {
+class AppTabBar extends StatefulWidget {
   final int selectedIndex;
   final ValueChanged<int> onTabChanged;
 
@@ -11,6 +12,23 @@ class AppTabBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onTabChanged,
   });
+
+  @override
+  State<AppTabBar> createState() => _AppTabBarState();
+}
+
+class _AppTabBarState extends State<AppTabBar> {
+  String _version = 'dev';
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted && info.version != '0.0.0') {
+        setState(() => _version = 'v${info.version}');
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,9 +48,17 @@ class AppTabBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
-          _Tab(label: 'HOME', index: 0, selected: selectedIndex == 0, onTap: onTabChanged),
-          _Tab(label: 'SETTINGS', index: 1, selected: selectedIndex == 1, onTap: onTabChanged),
-          _Tab(label: 'GUILDS', index: 2, selected: selectedIndex == 2, onTap: onTabChanged),
+          _Tab(label: 'HOME', index: 0, selected: widget.selectedIndex == 0, onTap: widget.onTabChanged),
+          _Tab(label: 'SETTINGS', index: 1, selected: widget.selectedIndex == 1, onTap: widget.onTabChanged),
+          _Tab(label: 'GUILDS', index: 2, selected: widget.selectedIndex == 2, onTap: widget.onTabChanged),
+          const Spacer(),
+          Text(
+            _version,
+            style: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 11,
+            ),
+          ),
         ],
       ),
     );

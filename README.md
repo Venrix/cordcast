@@ -1,4 +1,4 @@
-# CordCast
+# cordcast
 
 Discord audio streaming bot with a desktop control panel. Streams your system's microphone (or any recording device) into Discord voice and stage channels, and plays Discord audio back out to your speakers. Built with a Flutter desktop frontend driving a self-contained .NET worker bot.
 
@@ -21,7 +21,7 @@ Runs on **Windows** (Linux build paths exist but are untested).
 
 ## Architecture
 
-CordCast is two processes:
+cordcast is two processes:
 
 - **`app/`**: Flutter desktop UI. Manages config, device selection, and per-server settings.
 - **`worker/`**: self-contained .NET 9 console executable bundled as a Flutter asset. Runs the Discord.Net bot and handles audio via [BASS](https://www.un4seen.com/).

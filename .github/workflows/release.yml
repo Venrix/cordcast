@@ -70,7 +70,7 @@ jobs:
         with:
           name: windows-artifacts
           path: |
-            app/build/windows/installer/CordCast-*-windows-setup.exe
+            app/build/windows/installer/cordcast-*-windows-setup.exe
             cordcast-*-windows-portable.zip
 
   build-linux:

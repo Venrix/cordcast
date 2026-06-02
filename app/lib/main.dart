@@ -25,7 +25,7 @@ Future<void> _start() async {
   const windowOptions = WindowOptions(
     size: Size(520, 760),
     minimumSize: Size(480, 620),
-    title: 'CordCast',
+    title: 'cordcast',
     backgroundColor: AppTheme.background,
     titleBarStyle: TitleBarStyle.normal,
   );
@@ -59,7 +59,7 @@ class CordCastApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CordCast',
+      title: 'cordcast',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const _Shell(),
@@ -93,9 +93,9 @@ class _ShellState extends State<_Shell> with WindowListener, TrayListener {
   }
 
   Future<void> _setupTray() async {
-    await trayManager.setToolTip('CordCast');
+    await trayManager.setToolTip('cordcast');
     await trayManager.setContextMenu(Menu(items: [
-      MenuItem(key: 'show', label: 'Show CordCast'),
+      MenuItem(key: 'show', label: 'Show cordcast'),
       MenuItem.separator(),
       MenuItem(key: 'quit', label: 'Quit'),
     ]));

@@ -1,4 +1,4 @@
-#define AppName "CordCast"
+#define AppName "cordcast"
 #define AppPublisher "Venrix"
 #define AppExeName "cord_cast.exe"
 #define AppSourceDir "app\build\windows\x64\runner\Release"

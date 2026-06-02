@@ -133,7 +133,7 @@ public static class SlashCommandHandler
 
         new SlashCommandBuilder()
             .WithName("about")
-            .WithDescription("About CordCast")
+            .WithDescription("About cordcast")
             .AddOption("public", ApplicationCommandOptionType.Boolean, "Send publicly?", isRequired: false)
             .Build(),
 
@@ -403,7 +403,7 @@ public static class SlashCommandHandler
     {
         var isPublic = cmd.Data.Options.FirstOrDefault()?.Value as bool? ?? false;
         var embed = new EmbedBuilder()
-            .WithTitle("CordCast")
+            .WithTitle("cordcast")
             .WithDescription("Discord audio streaming bot. Streams audio between your system and Discord voice channels.")
             .WithColor(new Color(0x8B5CF6))
             .Build();

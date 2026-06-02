@@ -39,7 +39,7 @@ class _AppTabBarState extends State<AppTabBar> {
       child: Row(
         children: [
           const Text(
-            'CordCast',
+            'cordcast',
             style: TextStyle(
               color: AppTheme.accent,
               fontSize: 15,

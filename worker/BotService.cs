@@ -116,21 +116,24 @@ public class BotService : IAsyncDisposable
 
     public async Task JoinChannelAsync(SocketGuild guild, IVoiceChannel channel)
     {
-        // Disconnect from existing channel first (lock scope kept minimal)
+        // Remove existing connection under lock, then stop it outside the lock
+        // so OnAudioFrameReady isn't blocked during the network roundtrip.
+        IAudioClient? oldClient = null;
         await _audioLock.WaitAsync();
         try
         {
-            if (_audioClients.TryGetValue(guild.Id, out var existing))
+            if (_audioClients.TryGetValue(guild.Id, out oldClient))
             {
                 _audioStreams.Remove(guild.Id);
                 _audioClients.Remove(guild.Id);
-                await existing.StopAsync();
             }
         }
         finally
         {
             _audioLock.Release();
         }
+        if (oldClient is not null)
+            await oldClient.StopAsync();
 
         // ConnectAsync is long-running (UDP handshake) -- do NOT hold the lock here
         Logger.Write("INFO", "BotService", $"Joining {channel.Name} in {guild.Name}");
@@ -204,11 +207,14 @@ public class BotService : IAsyncDisposable
         await _audioLock.WaitAsync();
         try
         {
-            foreach (var stream in _audioStreams.Values)
+            // Write to all guild streams in parallel — sequential writes would
+            // delay later guilds by however long the first write takes, causing
+            // Discord to drop frames for those guilds due to timing jitter.
+            await Task.WhenAll(_audioStreams.Values.Select(async stream =>
             {
                 try { await stream.WriteAsync(pcm); }
                 catch { /* guild disconnected */ }
-            }
+            }));
         }
         finally
         {

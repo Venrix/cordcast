@@ -51,6 +51,13 @@ jobs:
           $version = '${{ github.ref_name }}'.TrimStart('v')
           flutter build windows --release --build-name=$version --build-number=${{ github.run_number }}
 
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          choco install innosetup --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=$version
+
       - name: Package portable zip
         shell: pwsh
         run: |
@@ -62,7 +69,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-artifacts
-          path: cordcast-*-windows-portable.zip
+          path: |
+            app/build/windows/installer/CordCast-*-windows-setup.exe
+            cordcast-*-windows-portable.zip
 
   build-linux:
     runs-on: ubuntu-latest

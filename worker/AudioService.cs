@@ -1,4 +1,5 @@
 using ManagedBass;
+using System.IO.Pipes;
 
 namespace CordCastWorker;
 
@@ -7,6 +8,8 @@ namespace CordCastWorker;
 /// </summary>
 public class AudioService : IDisposable
 {
+    public const string VstDeviceName = "CordCast VST Plugin";
+
     private int _recordHandle;
     private int _playbackStream; // push stream for Discord → speaker playback
     private bool _initialized;
@@ -17,6 +20,8 @@ public class AudioService : IDisposable
     private string? _playbackDevice;
     private bool _thresholdEnabled;
     private double _threshold;
+
+    private CancellationTokenSource? _vstCts;
 
     // Called by BotService to push 20ms PCM frames to Discord.
     public event EventHandler<byte[]>? AudioFrameReady;
@@ -67,12 +72,23 @@ public class AudioService : IDisposable
     {
         _thresholdEnabled = thresholdEnabled;
         _threshold = threshold;
+
+        bool deviceChanged = _recordingDevice != deviceName;
         _recordingDevice = deviceName;
 
-        if (enabled && !_speakActive)
-            StartRecording();
-        else if (!enabled && _speakActive)
-            StopRecording();
+        if (!enabled)
+        {
+            StopSpeaking();
+            return;
+        }
+
+        bool modeIsVst = deviceName == VstDeviceName;
+        bool currentIsVst = _vstCts is not null;
+        if (!_speakActive || deviceChanged || modeIsVst != currentIsVst)
+        {
+            StopSpeaking();
+            if (modeIsVst) StartVstReceiver(); else StartRecording();
+        }
     }
 
     public void SetListen(bool enabled, string? deviceName)
@@ -83,6 +99,84 @@ public class AudioService : IDisposable
             StartPlayback();
         else if (!enabled && _listenActive)
             StopPlayback();
+    }
+
+    private void StopSpeaking()
+    {
+        StopVstReceiver();
+        StopRecording(); // also sets _speakActive = false
+    }
+
+    private void StartVstReceiver()
+    {
+        _vstCts = new CancellationTokenSource();
+        var ct = _vstCts.Token;
+        _ = Task.Run(() => VstPipeLoopAsync(ct));
+        _speakActive = true;
+    }
+
+    private void StopVstReceiver()
+    {
+        _vstCts?.Cancel();
+        _vstCts = null;
+    }
+
+    private async Task VstPipeLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await using var pipe = new NamedPipeServerStream(
+                    "CordCastAudio", PipeDirection.InOut, 1,
+                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+
+                await pipe.WaitForConnectionAsync(ct);
+
+                var header = new byte[12];
+                while (!ct.IsCancellationRequested)
+                {
+                    if (!await ReadExactAsync(pipe, header, 12, ct)) break;
+
+                    uint numSamples  = BitConverter.ToUInt32(header, 0);
+                    float sampleRate = BitConverter.ToSingle(header, 4);
+                    uint numChannels = BitConverter.ToUInt32(header, 8);
+
+                    if (sampleRate != 48000f)
+                        Logger.Write("WARN", "AudioService", $"VST sample rate {sampleRate} Hz — set DAW to 48000");
+
+                    int bodyBytes = (int)(numSamples * numChannels * 4);
+                    var body = new byte[bodyBytes];
+                    if (!await ReadExactAsync(pipe, body, bodyBytes, ct)) break;
+
+                    var pcm = new byte[numSamples * numChannels * 2];
+                    for (int i = 0, j = 0; i < body.Length; i += 4, j += 2)
+                    {
+                        float f = BitConverter.ToSingle(body, i);
+                        short s = (short)Math.Clamp((int)(f * 32767f), short.MinValue, short.MaxValue);
+                        pcm[j]     = (byte)(s & 0xFF);
+                        pcm[j + 1] = (byte)(s >> 8);
+                    }
+
+                    if (_thresholdEnabled && !PassesThreshold(pcm, _threshold)) continue;
+                    AudioFrameReady?.Invoke(this, pcm);
+                }
+            }
+            catch (OperationCanceledException) { return; }
+            catch { /* client disconnected or pipe error — recreate and wait for reconnect */ }
+        }
+    }
+
+    private static async Task<bool> ReadExactAsync(Stream s, byte[] buf, int count, CancellationToken ct)
+    {
+        int offset = 0;
+        while (offset < count)
+        {
+            int n = await s.ReadAsync(buf.AsMemory(offset, count - offset), ct);
+            if (n == 0) return false;
+            offset += n;
+        }
+        return true;
     }
 
     private void StartRecording()
@@ -184,7 +278,7 @@ public class AudioService : IDisposable
 
     public void Dispose()
     {
-        StopRecording();
+        StopSpeaking();
         StopPlayback();
         if (_initialized)
         {

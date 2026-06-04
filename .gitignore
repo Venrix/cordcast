@@ -60,6 +60,9 @@ worker/bin/
 worker/obj/
 worker/publish/
 
+# VST plugin build output
+vst/build/
+
 # User secrets / local config
 *.user
 appsettings.Development.json

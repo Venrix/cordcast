@@ -45,7 +45,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final bot = context.watch<BotProvider>();
     final cfg = settings.config;
 
-    final recDeviceNames = ['(none)', ...bot.recordingDevices.map((d) => d.name)];
+    final recDeviceNames = ['(none)', 'CordCast VST Plugin', ...bot.recordingDevices.map((d) => d.name)];
     final playDeviceNames = ['(none)', ...bot.playbackDevices.map((d) => d.name)];
 
     return Scaffold(

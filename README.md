@@ -30,10 +30,10 @@ Runs on **Windows** (Linux build paths exist but are untested).
 cordcast has three components:
 
 - **`app/`**: Flutter desktop UI. Manages config, device selection, and per-server settings.
-- **`worker/`**: self-contained .NET 9 console executable bundled as a Flutter asset. Runs the Discord.Net bot and handles audio via [BASS](https://www.un4seen.com/).
+- **`worker/`**: self-contained .NET 10 console executable bundled as a Flutter asset. Runs the [NetCord](https://netcord.dev/) bot and handles audio via [BASS](https://www.un4seen.com/).
 - **`vst/`**: optional JUCE-based VST3 send plugin. Routes DAW audio into cordcast via a named pipe (`\\.\pipe\CordCastAudio`). No UI; install and add as a send effect on any DAW track.
 
-The app launches the worker as a child process and talks to it over **stdin/stdout using line-delimited JSON** (commands in, events out). Audio capture/playback uses BASS; Discord voice uses Discord.Net with native `opus`, `libsodium`, and `libdave` libraries resolved from the worker's own directory.
+The app launches the worker as a child process and talks to it over **stdin/stdout using line-delimited JSON** (commands in, events out). Audio capture/playback uses BASS; Discord voice uses NetCord with native `opus`, `libsodium`, and `libdave` libraries resolved from the worker's own directory.
 
 ## Requirements
 
@@ -83,7 +83,7 @@ The bot will appear offline until cordcast connects it.
 ### Prerequisites
 
 - [Flutter SDK](https://docs.flutter.dev/get-started/install/windows/desktop) with Windows desktop support enabled
-- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - [CMake 3.22+](https://cmake.org/download/) and Visual Studio 2022 (with C++ workload) — VST plugin only
 
 ### Build the worker

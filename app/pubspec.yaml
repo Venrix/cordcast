@@ -9,12 +9,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  provider: ^6.1.2
-  google_fonts: ^8.0.2
-  path: ^1.9.0
-  window_manager: ^0.4.0
-  tray_manager: ^0.2.3
-  package_info_plus: ^9.0.0
+  provider: ^6.1.5+1
+  google_fonts: ^8.1.0
+  path: ^1.9.1
+  window_manager: ^0.5.1
+  tray_manager: ^0.5.2
+  package_info_plus: ^10.1.0
 
 dev_dependencies:
   flutter_test:

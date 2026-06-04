@@ -30,12 +30,8 @@ static IntPtr ResolveFromExeDir(string name, System.Reflection.Assembly assembly
 
 NativeLibrary.SetDllImportResolver(typeof(Bass).Assembly, ResolveFromExeDir);
 
-// Discord.Net.WebSocket requires opus (audio codec) and libsodium (encryption)
-var discordAudioAssembly = typeof(Discord.WebSocket.DiscordSocketClient).Assembly;
-NativeLibrary.SetDllImportResolver(discordAudioAssembly, ResolveFromExeDir);
-
-// Discord.Net.Dave requires libdave (DAVE E2EE), mandatory since Mar 2026
-NativeLibrary.SetDllImportResolver(typeof(Discord.LibDave.Dave).Assembly, ResolveFromExeDir);
+// NetCord bundles all native P/Invokes (opus, libsodium, libdave) in a single assembly
+NativeLibrary.SetDllImportResolver(typeof(NetCord.Gateway.Voice.VoiceClient).Assembly, ResolveFromExeDir);
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };

@@ -1,19 +1,20 @@
-using Discord;
-using Discord.Audio;
-using Discord.WebSocket;
+using NetCord;
+using NetCord.Gateway;
+using NetCord.Gateway.Voice;
+using NetCord.Rest;
 using CordCastWorker.Models;
 
 namespace CordCastWorker;
 
 public class BotService : IAsyncDisposable
 {
-    private DiscordSocketClient? _client;
+    private GatewayClient? _client;
     private readonly AudioService _audio;
     private Config? _config;
 
-    // guildId → AudioOutStream for sending to Discord
-    private readonly Dictionary<ulong, AudioOutStream> _audioStreams = new();
-    private readonly Dictionary<ulong, IAudioClient> _audioClients = new();
+    private readonly Dictionary<ulong, OpusEncodeStream> _audioStreams = new();
+    private readonly Dictionary<ulong, VoiceClient> _audioClients = new();
+    private readonly Dictionary<ulong, ulong> _channelIds = new();
     private readonly SemaphoreSlim _audioLock = new(1, 1);
 
     public BotService(AudioService audio)
@@ -26,43 +27,38 @@ public class BotService : IAsyncDisposable
     {
         _config = config;
 
-        _client = new DiscordSocketClient(new DiscordSocketConfig
+        _client = new GatewayClient(new BotToken(config.BotToken), new GatewayClientConfiguration
         {
-            GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildVoiceStates,
-            LogLevel = LogSeverity.Info,
-            EnableVoiceDaveEncryption = true, // DAVE E2EE mandatory since Mar 2026; needs libdave.dll
+            Intents = GatewayIntents.Guilds | GatewayIntents.GuildVoiceStates,
         });
 
-        _client.Log += msg =>
+        _client.Ready += OnReady;
+        _client.InteractionCreate += OnInteraction;
+        _client.VoiceStateUpdate += OnVoiceStateUpdate;
+        _client.LatencyUpdate += latency =>
         {
-            var text = msg.Exception != null ? $"{msg.Message}: {msg.Exception}" : msg.Message;
-            Logger.Write(msg.Severity.ToString(), msg.Source, text);
-            return Task.CompletedTask;
+            Ipc.Emit("ping_updated", new Dictionary<string, object?>
+            {
+                ["gatewayPing"] = (int)latency.TotalMilliseconds,
+                ["audioPing"] = 0,
+            });
+            return default;
         };
 
-        _client.Ready += OnReady;
-        _client.SlashCommandExecuted += OnSlashCommand;
-        _client.UserVoiceStateUpdated += OnVoiceStateUpdated;
-        _client.LatencyUpdated += OnLatencyUpdated;
-
-        await _client.LoginAsync(TokenType.Bot, config.BotToken);
         await _client.StartAsync();
     }
 
-    private async Task OnReady()
+    private async ValueTask OnReady(ReadyEventArgs args)
     {
         await RegisterSlashCommandsAsync();
 
-        // Auto-join configured channels
-        foreach (var guild in _client!.Guilds)
+        foreach (var guild in _client!.Cache.Guilds.Values)
         {
             var guildCfg = _config!.GetGuildConfig(guild.Id.ToString());
             if (guildCfg.AutoJoinAudioChannelId is { } channelIdStr &&
                 ulong.TryParse(channelIdStr, out var channelId))
             {
-                var channel = guild.GetVoiceChannel(channelId);
-                if (channel is not null)
-                    await JoinChannelAsync(guild, channel);
+                await JoinChannelAsync(guild, channelId);
             }
         }
 
@@ -72,104 +68,109 @@ public class BotService : IAsyncDisposable
 
         Ipc.Emit("ready", new Dictionary<string, object?>
         {
-            ["gatewayPing"] = _client.Latency,
+            ["gatewayPing"] = (int)_client.Latency.TotalMilliseconds,
         });
     }
 
-    private Task OnLatencyUpdated(int old, int current)
-    {
-        Ipc.Emit("ping_updated", new Dictionary<string, object?>
-        {
-            ["gatewayPing"] = current,
-            ["audioPing"] = 0,
-        });
-        return Task.CompletedTask;
-    }
-
-    private Task OnVoiceStateUpdated(SocketUser user, SocketVoiceState before, SocketVoiceState after)
+    private ValueTask OnVoiceStateUpdate(VoiceState voiceState)
     {
         _ = Task.Run(async () =>
         {
             if (_config is null) return;
 
-            foreach (var guild in _client!.Guilds)
-            {
-                var guildCfg = _config.GetGuildConfig(guild.Id.ToString());
-                if (guildCfg.FollowedUserId != user.Id.ToString()) continue;
+            var guildCfg = _config.GetGuildConfig(voiceState.GuildId.ToString());
+            if (guildCfg.FollowedUserId != voiceState.UserId.ToString()) return;
 
-                if (after.VoiceChannel is not null)
-                    await JoinChannelAsync(guild, after.VoiceChannel);
-                else
-                    await LeaveGuildAudioAsync(guild.Id);
-            }
+            if (!_client!.Cache.Guilds.TryGetValue(voiceState.GuildId, out var guild)) return;
+
+            if (voiceState.ChannelId.HasValue)
+                await JoinChannelAsync(guild, voiceState.ChannelId.Value);
+            else
+                await LeaveGuildAudioAsync(voiceState.GuildId);
 
             EmitGuildsUpdated();
         });
-        return Task.CompletedTask;
+        return default;
     }
 
-    private Task OnSlashCommand(SocketSlashCommand cmd)
+    private ValueTask OnInteraction(Interaction interaction)
     {
-        _ = Task.Run(() => Commands.SlashCommandHandler.HandleAsync(cmd, this, _config!));
-        return Task.CompletedTask;
+        if (interaction is SlashCommandInteraction cmd)
+            _ = Task.Run(() => Commands.SlashCommandHandler.HandleAsync(cmd, this, _config!));
+        return default;
     }
 
-    public async Task JoinChannelAsync(SocketGuild guild, IVoiceChannel channel)
+    public async Task JoinChannelAsync(Guild guild, ulong channelId)
     {
-        // Remove existing connection under lock, then stop it outside the lock
-        // so OnAudioFrameReady isn't blocked during the network roundtrip.
-        IAudioClient? oldClient = null;
+        // Remove existing connection under lock, then tear down outside the lock
+        // so OnAudioFrameReady isn't blocked during network operations.
+        VoiceClient? oldClient = null;
+        OpusEncodeStream? oldStream = null;
         await _audioLock.WaitAsync();
         try
         {
             if (_audioClients.TryGetValue(guild.Id, out oldClient))
             {
+                _audioStreams.TryGetValue(guild.Id, out oldStream);
                 _audioStreams.Remove(guild.Id);
                 _audioClients.Remove(guild.Id);
+                _channelIds.Remove(guild.Id);
             }
         }
         finally
         {
             _audioLock.Release();
         }
+        if (oldStream is not null) await oldStream.DisposeAsync();
         if (oldClient is not null)
-            await oldClient.StopAsync();
-
-        // ConnectAsync is long-running (UDP handshake) -- do NOT hold the lock here
-        Logger.Write("INFO", "BotService", $"Joining {channel.Name} in {guild.Name}");
-        var audioClient = await channel.ConnectAsync();
-
-        audioClient.Disconnected += ex =>
         {
-            Logger.Write("ERROR", "Voice", $"Disconnected: {ex?.Message ?? "no exception"}");
-            return Task.CompletedTask;
-        };
+            await oldClient.CloseAsync();
+            oldClient.Dispose();
+        }
 
-        var pcmStream = audioClient.CreatePCMStream(AudioApplication.Voice, bitrate: 96000, bufferMillis: 200);
+        Logger.Write("INFO", "BotService", $"Joining channel {channelId} in {guild.Name}");
 
-        // Always subscribe; AudioService.ReceiveDiscordAudio drops frames when
-        // listen is off, so this can be toggled live without rejoining voice.
-        audioClient.StreamCreated += (userId, stream) =>
+        // JoinVoiceChannelAsync handles UpdateVoiceState + VoiceStateUpdate/VoiceServerUpdate
+        // coordination but returns an unconnected client — StartAsync completes the WebSocket handshake.
+        var voiceClient = await _client!.JoinVoiceChannelAsync(guild.Id, channelId);
+        await voiceClient.StartAsync();
+        await voiceClient.EnterSpeakingStateAsync(new SpeakingProperties(SpeakingFlags.Microphone));
+
+        var encodeStream = new OpusEncodeStream(
+            voiceClient.CreateVoiceStream(), PcmFormat.Short, VoiceChannels.Stereo, OpusApplication.Audio);
+
+        voiceClient.Disconnect += async _ =>
         {
-            _ = Task.Run(async () =>
+            Logger.Write("WARN", "Voice", $"Disconnected from {guild.Name}");
+            await _audioLock.WaitAsync();
+            try
             {
-                var buf = new byte[3840];
-                while (true)
+                if (_audioClients.TryGetValue(guild.Id, out var current) && ReferenceEquals(current, voiceClient))
                 {
-                    int read = await stream.ReadAsync(buf);
-                    if (read == 0) break;
-                    _audio.ReceiveDiscordAudio(buf[..read]);
+                    _audioStreams.Remove(guild.Id);
+                    _audioClients.Remove(guild.Id);
+                    _channelIds.Remove(guild.Id);
                 }
-            });
-            return Task.CompletedTask;
+            }
+            finally
+            {
+                _audioLock.Release();
+            }
+            EmitGuildsUpdated();
         };
 
-        // Store new connection
+        voiceClient.VoiceReceive += args =>
+        {
+            _audio.ReceiveDiscordAudio(args.Frame.ToArray());
+            return default;
+        };
+
         await _audioLock.WaitAsync();
         try
         {
-            _audioClients[guild.Id] = audioClient;
-            _audioStreams[guild.Id] = pcmStream;
+            _audioClients[guild.Id] = voiceClient;
+            _audioStreams[guild.Id] = encodeStream;
+            _channelIds[guild.Id] = channelId;
         }
         finally
         {
@@ -179,20 +180,31 @@ public class BotService : IAsyncDisposable
 
     public async Task LeaveGuildAudioAsync(ulong guildId)
     {
+        VoiceClient? client = null;
+        OpusEncodeStream? stream = null;
         await _audioLock.WaitAsync();
         try
         {
-            if (_audioClients.TryGetValue(guildId, out var client))
+            if (_audioClients.TryGetValue(guildId, out client))
             {
+                _audioStreams.TryGetValue(guildId, out stream);
                 _audioStreams.Remove(guildId);
                 _audioClients.Remove(guildId);
-                await client.StopAsync();
+                _channelIds.Remove(guildId);
             }
         }
         finally
         {
             _audioLock.Release();
         }
+        if (stream is not null) await stream.DisposeAsync();
+        if (client is not null)
+        {
+            await client.CloseAsync();
+            client.Dispose();
+        }
+        if (_client is not null)
+            await _client.UpdateVoiceStateAsync(new VoiceStateProperties(guildId, null));
     }
 
     public async Task LeaveAllAsync()
@@ -207,9 +219,6 @@ public class BotService : IAsyncDisposable
         await _audioLock.WaitAsync();
         try
         {
-            // Write to all guild streams in parallel — sequential writes would
-            // delay later guilds by however long the first write takes, causing
-            // Discord to drop frames for those guilds due to timing jitter.
             await Task.WhenAll(_audioStreams.Values.Select(async stream =>
             {
                 try { await stream.WriteAsync(pcm); }
@@ -240,13 +249,10 @@ public class BotService : IAsyncDisposable
     public void EmitGuildsUpdated()
     {
         if (_client is null) return;
-        var guilds = _client.Guilds.Select(g =>
+        var guilds = _client.Cache.Guilds.Values.Select(g =>
         {
-            _audioClients.TryGetValue(g.Id, out var ac);
-            var channel = ac is not null
-                ? g.VoiceChannels.FirstOrDefault(c =>
-                    c.Users.Any(u => u.Id == _client.CurrentUser.Id))
-                : null;
+            _channelIds.TryGetValue(g.Id, out var chId);
+            var channel = chId != 0 ? g.Channels.GetValueOrDefault(chId) : null;
             return new Dictionary<string, object?>
             {
                 ["id"] = g.Id.ToString(),
@@ -259,23 +265,22 @@ public class BotService : IAsyncDisposable
         Ipc.Emit("guilds_updated", new Dictionary<string, object?> { ["guilds"] = guilds });
     }
 
-    public DiscordSocketClient? Client => _client;
+    public ulong GetCurrentChannelId(ulong guildId) => _channelIds.GetValueOrDefault(guildId);
+
+    public GatewayClient? Client => _client;
     public Config? Config => _config;
 
     private async Task RegisterSlashCommandsAsync()
     {
         var cmds = Commands.SlashCommandHandler.BuildCommands();
-        await _client!.BulkOverwriteGlobalApplicationCommandsAsync(cmds);
+        await _client!.Rest.BulkOverwriteGlobalApplicationCommandsAsync(_client.Id, cmds);
     }
 
     public async Task StopAsync()
     {
         await LeaveAllAsync();
         if (_client is not null)
-        {
-            await _client.StopAsync();
-            await _client.LogoutAsync();
-        }
+            await _client.CloseAsync();
         Ipc.Emit("disconnected");
     }
 

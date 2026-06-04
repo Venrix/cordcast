@@ -37,10 +37,46 @@ The app launches the worker as a child process and talks to it over **stdin/stdo
 
 ## Requirements
 
-- A [Discord bot application](https://discord.com/developers/applications) with a bot token
-- The bot needs the **Server Members** and **Voice** related intents/permissions; invite it with the link from `/invite`
+- A Discord bot application and token (see below)
+- The bot invited to your server with voice permissions
 
 Native audio/codec libraries (`bass.dll`, `opus.dll`, `libsodium.dll`, `libdave.dll`) ship in `app/assets/worker/` and are bundled into the build. No separate install needed.
+
+## Setting up a Discord bot
+
+### 1. Create the application
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and log in
+2. Click **New Application**, enter a name (e.g. `cordcast`), accept the terms, and click **Create**
+
+### 2. Create the bot and copy the token
+
+1. In the left sidebar click **Bot**
+2. Under **Token**, click **Reset Token** → confirm (enter your 2FA code if prompted) → copy the token
+3. Paste it into the **Bot Token** field in cordcast's Settings tab — you won't be able to view the token again without resetting it
+
+### 3. Privileged Gateway Intents
+
+cordcast only uses the **Guilds** and **Guild Voice States** intents, which are not privileged. No privileged intents need to be enabled; leave all toggles under _Privileged Gateway Intents_ off.
+
+### 4. Invite the bot to your server
+
+1. In the left sidebar go to **OAuth2 → URL Generator**
+2. Under **Scopes** tick: `bot`, `applications.commands`
+3. Under **Bot Permissions** tick:
+
+   | Permission         | Why                                              |
+   | ------------------ | ------------------------------------------------ |
+   | Connect            | Join voice and stage channels                    |
+   | Speak              | Stream audio into voice channels                 |
+   | Use Voice Activity | Send audio without push-to-talk                  |
+   | Mute Members       | Manage stage speakers                            |
+   | Move Members       | Follow a user between channels (`/follow-audio`) |
+   | Request to Speak   | Enter stage channels as a speaker                |
+
+4. Copy the generated URL at the bottom, open it in your browser, select your server, and click **Authorise**
+
+The bot will appear offline until cordcast connects it.
 
 ## Developing
 

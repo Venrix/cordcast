@@ -1,5 +1,7 @@
 using ManagedBass;
+using System.Diagnostics;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 
 namespace CordCastWorker;
 
@@ -23,6 +25,10 @@ public class AudioService : IDisposable
 
     private CancellationTokenSource? _vstCts;
 
+    // Linux PulseAudio/PipeWire: maps display description → pa source name
+    private readonly Dictionary<string, string> _paSourceMap = new();
+    private Process? _parecProcess;
+
     // Called by BotService to push 20ms PCM frames to Discord.
     public event EventHandler<byte[]>? AudioFrameReady;
 
@@ -42,6 +48,18 @@ public class AudioService : IDisposable
 
     public List<(string Id, string Name)> GetRecordingDevices()
     {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            var pa = GetPulseAudioSources();
+            if (pa.Count > 0)
+            {
+                _paSourceMap.Clear();
+                foreach (var (id, name) in pa)
+                    _paSourceMap[name] = id;
+                return pa;
+            }
+        }
+
         var seen = new HashSet<string>();
         var list = new List<(string, string)>();
         var count = Bass.RecordingDeviceCount;
@@ -52,6 +70,38 @@ public class AudioService : IDisposable
                 list.Add((i.ToString(), info.Name));
         }
         return list;
+    }
+
+    private static List<(string Id, string Name)> GetPulseAudioSources()
+    {
+        var result = new List<(string, string)>();
+        try
+        {
+            using var proc = Process.Start(new ProcessStartInfo("pactl", "list sources")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            });
+            if (proc is null) return result;
+
+            string? sourceName = null;
+            foreach (var line in proc.StandardOutput.ReadToEnd().Split('\n'))
+            {
+                var t = line.TrimStart();
+                if (t.StartsWith("Name: "))
+                    sourceName = t["Name: ".Length..].Trim();
+                else if (t.StartsWith("Description: ") && sourceName is not null)
+                {
+                    var desc = t["Description: ".Length..].Trim();
+                    if (!sourceName.EndsWith(".monitor"))
+                        result.Add((sourceName, desc));
+                    sourceName = null;
+                }
+            }
+            proc.WaitForExit();
+        }
+        catch { }
+        return result;
     }
 
     public List<(string Id, string Name)> GetPlaybackDevices()
@@ -181,12 +231,59 @@ public class AudioService : IDisposable
 
     private void StartRecording()
     {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
+            _recordingDevice is not null &&
+            _paSourceMap.TryGetValue(_recordingDevice, out var paSource))
+        {
+            StartRecordingPulse(paSource);
+            return;
+        }
+
         var deviceIndex = FindRecordingDevice(_recordingDevice);
         Bass.RecordInit(deviceIndex);
 
         // 48000 Hz stereo 16-bit, 20ms callback for Discord frame alignment
         _recordHandle = Bass.RecordStart(48000, 2, BassFlags.Default, 20, RecordCallback, 0);
         _speakActive = _recordHandle != 0;
+    }
+
+    private void StartRecordingPulse(string sourceName)
+    {
+        _parecProcess = Process.Start(new ProcessStartInfo("parec",
+            $"--device={sourceName} --format=s16le --rate=48000 --channels=2 --latency-msec=20")
+        {
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        });
+        if (_parecProcess is null) return;
+
+        _speakActive = true;
+        _ = Task.Run(() => PulseReadLoop(_parecProcess));
+    }
+
+    private void PulseReadLoop(Process proc)
+    {
+        const int frameBytes = 3840; // 20ms at 48kHz stereo int16
+        var buf = new byte[frameBytes];
+        var stream = proc.StandardOutput.BaseStream;
+        try
+        {
+            while (_speakActive)
+            {
+                int offset = 0;
+                while (offset < frameBytes)
+                {
+                    int n = stream.Read(buf, offset, frameBytes - offset);
+                    if (n == 0) return;
+                    offset += n;
+                }
+                if (!_speakActive) return;
+                var frame = buf[..frameBytes];
+                if (_thresholdEnabled && !PassesThreshold(frame, _threshold)) continue;
+                AudioFrameReady?.Invoke(this, frame);
+            }
+        }
+        catch { }
     }
 
     private bool RecordCallback(int handle, IntPtr buffer, int length, IntPtr user)
@@ -218,6 +315,12 @@ public class AudioService : IDisposable
 
     private void StopRecording()
     {
+        if (_parecProcess is not null)
+        {
+            try { _parecProcess.Kill(); } catch { }
+            _parecProcess.Dispose();
+            _parecProcess = null;
+        }
         if (_recordHandle != 0)
         {
             Bass.ChannelStop(_recordHandle);

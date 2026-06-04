@@ -7,6 +7,22 @@
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // Single-instance guard: if another instance already holds the mutex,
+  // bring its window to the foreground and exit immediately.
+  HANDLE hMutex = ::CreateMutexW(
+      nullptr, TRUE,
+      L"CordCastSingleInstance_{1DE2BFB6-DF09-4563-8B1B-1E997A479DD8}");
+  if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+    HWND hwnd = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
+    if (hwnd != nullptr) {
+      ::ShowWindow(hwnd, SW_SHOW);
+      if (::IsIconic(hwnd)) ::ShowWindow(hwnd, SW_RESTORE);
+      ::SetForegroundWindow(hwnd);
+    }
+    if (hMutex) ::CloseHandle(hMutex);
+    return EXIT_SUCCESS;
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {

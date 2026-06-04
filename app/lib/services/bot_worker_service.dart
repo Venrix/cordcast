@@ -24,6 +24,10 @@ class BotWorkerService {
     _disposed = false;
     _eventController = StreamController<Map<String, dynamic>>.broadcast();
 
+    if (!Platform.isWindows) {
+      await Process.run('chmod', ['+x', _workerPath]);
+    }
+
     _process = await Process.start(
       _workerPath,
       [],

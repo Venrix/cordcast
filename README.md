@@ -6,6 +6,10 @@ Discord audio streaming bot with a desktop control panel. Streams your system's 
 
 Runs on **Windows** (Linux build paths exist but are untested).
 
+<img width="400" alt="image" src="https://github.com/user-attachments/assets/52873230-d948-4133-bf70-0d3400249d42" />
+<img width="400" alt="image" src="https://github.com/user-attachments/assets/c6d11d0f-5d34-4b26-88a8-1cf2838e2108" />
+<img width="400" alt="image" src="https://github.com/user-attachments/assets/a26f170f-94c5-4374-bde5-1bacad6ab3c6" />
+
 ## Features
 
 - **Speak**: capture a recording device and stream 48 kHz stereo audio into Discord voice/stage channels; select **CordCast VST Plugin** to route audio directly from a DAW send channel
